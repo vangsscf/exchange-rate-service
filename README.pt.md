@@ -1,4 +1,4 @@
-# <img src="https://avatars1.githubusercontent.com/u/7063040?v=4&s=200.jpg" alt="Hurb" width="24" /> Desafio Bravo
+# <img src="https://avatars1.githubusercontent.com/u/7063040?v=4&s=200.jpg" alt="Hurb" width="24" /> Serviço de Taxas de Câmbio
 
 [[English](README.md) | [Portuguese](README.pt.md)]
 
@@ -186,9 +186,3 @@ Este endpoint remove moedas da aplicação. É necessário autenticação. Moeda
         "message": "Asset GTA6 removed with success!"
     }
 
-
-Feito! ;)
-
-<p align="center">
-  <img src="completed.jpg" alt="Feito!" />
-</p>

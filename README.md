@@ -1,4 +1,4 @@
-# <img src="https://avatars1.githubusercontent.com/u/7063040?v=4&s=200.jpg" alt="Hurb" width="24" /> Bravo Challenge
+# <img src="https://avatars1.githubusercontent.com/u/7063040?v=4&s=200.jpg" alt="Hurb" width="24" /> Exchange Rate Service
 
 [[English](README.md) | [Portuguese](README.pt.md)]
 
@@ -186,9 +186,3 @@ This endpoint removes currencies from this application. Needs authentication. De
         "message": "Asset GTA6 removed with success!"
     }
 
-
-Done! ;)
-
-<p align="center">
-  <img src="completed.jpg" alt="Challange completed" />
-</p>
