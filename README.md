@@ -1,188 +1,122 @@
-# <img src="https://avatars1.githubusercontent.com/u/7063040?v=4&s=200.jpg" alt="Hurb" width="24" /> Exchange Rate Service
+# Exchange Rate Service
 
-[[English](README.md) | [Portuguese](README.pt.md)]
+[English](README.md) · [Português](README.pt.md)
 
-## Install
+A NestJS HTTP API written in TypeScript that converts fiat, crypto, and custom currencies using rates stored in Redis. Rates are expressed in USD per unit of the asset. The service requests quotes from CoinAPI first and uses CoinMarketCap for symbols it cannot price through CoinAPI.
 
-The first step is to config this application is create a `.env` file using the `.env.example` present here as a guide. This application uses [_CoinAPI_](https://www.coinapi.io/) and also [_CoinMarketCap API_](https://coinmarketcap.com/api/) to work, so you will need to request their API keys or have them available already.
+## Run locally
 
-To run this API you will need to have Docker already installed in your machine. Assuming you already have it, you just need to run the following command:
+Copy [`.env.example`](.env.example) to `.env`, supply your provider API keys, and set your own admin credentials and signing secret.
 
-`docker-compose up`
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | HTTP listen port. The example and Compose port mapping use `3100`. If you change it in Compose, update the container port in the mapping as well. |
+| `COINS` | Comma-separated symbols to seed at startup. The example seeds `USD,BRL,EUR,BTC,ETH`. Use symbols as stored, including letter case, and keep `USD` as the base currency. |
+| `COINAPIKEY` | CoinAPI key for the USD exchange-rate feed. |
+| `MCAPIKEY` | CoinMarketCap API key for the symbol map and USD quotes. |
+| `REDIS` | Redis URL. Use `redis://redis:6379` with bundled Compose Redis or `redis://127.0.0.1:6379` with Redis on the same host as a locally run app. |
+| `LOGIN`, `PASS` | Credentials for the single administrator. |
+| `SECRET` | JWT signing secret. |
 
-**Warning**: There is a simple redis structure on this project to facilitate testing, but in a real scenario it is recommended to replace this structure or modify to improve security/ performance (Redis can be slower inside a docker container). You can change the url using the variable REDIS on the enviroment file.
+With Docker and Compose installed, run:
 
-This application provides a API that converts a given currency and amount to another coin. It has the following currencies as default:
--   USD
--   BRL
--   EUR
--   BTC
--   ETH
+```sh
+docker compose up --build
+```
 
-If you wish you can change the default list as well using the `.env` file. The default currencies listed on `.env` can't be removed via API. 
+For development without Docker, install Node.js 20.11 or newer and npm, start a Redis server reachable at `REDIS`, and run:
 
+```sh
+npm ci
+npm run start:dev
+```
 
-## Conversion
+`npm run start:dev` uses the Nest CLI in watch mode. For production, run `npm run build` then `npm run start:prod`. Run `npm test` to build and exercise the HTTP endpoints and scheduler with in-memory storage and provider fixtures. The examples below use a POSIX-compatible shell and `http://localhost:3100`.
 
-### Request
+The service seeds configured currencies and attempts its first refresh before accepting requests, then refreshes every minute. New seed currencies retain a placeholder rate of 1 if the initial refresh fails. Known limitations are tracked in [ISSUES.md](ISSUES.md).
 
-`GET /conversion`
+## Convert currency
 
-    curl --location 'localhost:3100/conversion?from=BTC&to=BRL&decimalPlaces=30'
+`GET /conversion` is public.
 
-### Query Parameters    
-    | Parameter       | Description                          | Required | Type   |
-    | --------------- | ------------------------------------ | -------- | ------ |
-    | `from`          | Initial currency                     | Yes      | string |
-    | `to`            | Desired currency rate                | Yes      | string |
-    | `amount`        | Desired amount to convert            | No       | number |
-    | `decimalPlaces` | Desired decimal places. Default is 8 | No       | number |
+| Query parameter | Description |
+| --- | --- |
+| `from` | Required source symbol. |
+| `to` | Required destination symbol. |
+| `amount` | Optional numeric amount. Defaults to 1. |
+| `decimalPlaces` | Optional integer. Use 1–30 to format the result. The default is 8, and the current implementation also uses 8 when given 0. |
 
-### Response
+```sh
+curl 'http://localhost:3100/conversion?from=USD&to=EUR&amount=10&decimalPlaces=2'
+```
 
-    Status: 200
-    Content-Type: application/json
+Example `200 OK` response. The result depends on the stored rates.
 
-    {
-        "from": "BTC",
-        "amount": 1,
-        "to": "BRL",
-        "value": "345964.377343084448906460570000000000"
-    }
+```json
+{"from":"USD","amount":10,"to":"EUR","value":"9.20"}
+```
 
-## Authentication 
+An unknown symbol returns `404`. The formatted `value` is a JSON string.
 
-The token returned by this endpoint is required to add and remove coins from the system. This project version has only one admin user configurable in the `.env`. The token has expiration time of 2 hours.
+## Authenticate and refresh
 
-### Request
+`POST /login` accepts a JSON body with the required strings `login` and `password`, which must match `LOGIN` and `PASS`.
 
-`POST /login`
+```sh
+curl 'http://localhost:3100/login' \
+  -H 'Content-Type: application/json' \
+  --data '{"login":"YOUR_LOGIN","password":"YOUR_PASSWORD"}'
+```
 
-    curl --location 'localhost:3100/login' \
-    --header 'Content-Type: application/json' \
-    --data '{
-        "login":"admin",
-        "password":"admin"
-    }'
+A successful response is `200 OK` with `{"token":"<JWT>"}`. Tokens expire after two hours. Use the raw JWT as the `Authorization` header value, omitting the `Bearer` prefix. Replace `YOUR_JWT` in the examples with the token returned by login.
 
-### Body  
-    | Field      | Description           | Required | Type   |
-    | ---------- | --------------------- | -------- | ------ |
-    | `login`    | Defined on enviroment | Yes      | string |
-    | `password` | Defined on enviroment | Yes      | string |
+`GET /refresh` requires a valid, unexpired token and returns a newly signed token in the same response format.
 
-### Response
+```sh
+curl 'http://localhost:3100/refresh' -H 'Authorization: YOUR_JWT'
+```
 
-    Status: 200
-    Content-Type: application/json
+## Add a currency
 
-    {
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjIw....."
-    }
+`POST /add` requires authentication and a JSON body. Adding a symbol already stored with type `main` returns `404`.
 
-## Refresh Token
+| Field | Description |
+| --- | --- |
+| `symbol` | Required alphanumeric string of up to 15 characters. Lookups are case-sensitive. |
+| `type` | Required. One of `fiat`, `crypto`, `fixed`, or `scrapper`. |
+| `rate` | Supply a positive numeric USD rate per unit for `fixed`. |
+| `scrpprUrl` | Page URL required for the scraper fallback. |
+| `scrpprRateTag` | CSS selector for price text, required for the scraper fallback. |
+| `scrpprAmountTag` | Optional CSS selector for quantity text. Defaults to a quantity of 1. |
+| `scrpprRateAsset` | Optional symbol already stored in Redis, indicating the price currency. Defaults to USD. |
+| `scrpprDecimalSymbol` | Optional decimal separator, `,` or `.`. Defaults to `,`. |
 
-### Request
+All types check the loaded CoinAPI quotes and then the CoinMarketCap symbol map before using a fixed rate or scraping a page. The current scraper expects a text fragment containing `$` in each configured selector. The service looks up a rate before saving the record. Some fallback inputs can still produce invalid stored rates.
 
-`GET /refesh`
+```sh
+curl 'http://localhost:3100/add' \
+  -H 'Authorization: YOUR_JWT' \
+  -H 'Content-Type: application/json' \
+  --data '{"symbol":"DEMOCOIN","type":"fixed","rate":2.5}'
+```
 
-    curl --location 'localhost:3100/refresh' \
-    --header 'Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjIwMjYxNDUyNSwiaWF0IjoxNzE2MjAyNjE0LCJleHAiOjE3MTYyMDk4MTR9.yxO-a_LBhcwUVrO4TekbT0beER5YywYBSI5kWaBy_GQ'
+Example `200 OK` response:
 
-### Headers
-    | Field           | Description | Required | Type   |
-    | --------------- | ----------- | -------- | ------ |
-    | `Authorization` | Token       | Yes      | string |
+```json
+{"message":"Asset DEMOCOIN added with success!"}
+```
 
-### Response
+## Remove a currency
 
-    Status: 200
-    Content-Type: application/json
+`DELETE /remove/:asset` requires authentication. Removing an unknown symbol returns `404`. A currency currently stored with type `main` returns `400`.
 
-    {
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjIw....."
-    }
+```sh
+curl -X DELETE 'http://localhost:3100/remove/DEMOCOIN' \
+  -H 'Authorization: YOUR_JWT'
+```
 
-## Add Currency
+Example `200 OK` response:
 
-This endpoint add new currencies in this platform. Needs authentication
-
-### Request
-
-`POST /add`
-
-    curl --location 'localhost:3100/add' \
-    --header 'Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjE4NzE0MzA2MSwiaWF0IjoxNzE2MTg3MTQzLCJleHAiOjE3MTYxOTQzNDN9.kc862x0RNknfeGI3baiDfKatsSupwLO-MMzD-EJx50I' \
-    --header 'Content-Type: application/json' \
-    --data '{
-        "symbol":"GTA",
-        "type":"crypto"
-    }'
-
-### Body
-    | Field                 | Description                                                            | Required | Type   |
-    | --------------------- | ---------------------------------------------------------------------- | -------- | ------ |
-    | `symbol`              | Currency symbol                                                        | Yes      | string |
-    | `type`                | Currency type                                                          | Yes      | Enum   |
-    | `rate`                | Rate default. Only to fixed type                                       | No       | number |
-    | `scrpprRateAsset`     | The rate asset of the value searched with the scrapper. Default is USD | No       | string |
-    | `scrpprUrl`           | Web Page url. Required for the scrapper                                | No       | string |
-    | `scrpprAmountTag`     | Tag for looking for amount. Without the amount will be 1               | No       | string |
-    | `scrpprRateTag`       | Tag for looking for the rate. Required for the scrapper                | No       | string |
-    | `scrpprDecimalSymbol` | Decimal symbol. Default is a comma(,)                                  | No       | string |
-
-### CurrencyTypes Enum
-| Enum       | Description                                                                                        |
-| ---------- | -------------------------------------------------------------------------------------------------- |
-| `fiat`     | Fiat currency                                                                                      |
-| `Crypto`   | Crypto currency                                                                                    |
-| `Fixed`    | Rate fixed                                                                                         |
-| `Scrapper` | Load currency data from a web page. Only use if you can't get the data using fiat and crypto types |
-
-**Warning**: The fixed and scrapper types will be overrited if the currency is found within CoinAPI.io and/or MarketCap API. They are mean to be used when you can't find the coin by normal means. Ex: Ficticious coin as D&D Coin.
-
-
-### Scrapper Example
-    curl --location 'localhost:3100/add' \
-    --header 'Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjIwNDA3Mzg4MiwiaWF0IjoxNzE2MjA0MDczLCJleHAiOjE3MTYyMTEyNzN9._jjuooOorYKFB4IsQ10MqDWyZTgWmJ29F5llaEA0BW0' \
-    --header 'Content-Type: application/json' \
-    --data '{
-        "symbol":"GTAOnline",
-        "type":"scrapper",
-        "scrpprRateAsset":"BRL",
-        "scrpprUrl":"https://store.playstation.com/pt-br/product/UP1004-CUSA00419_00-GTAVCASHPACK000D",
-        "scrpprAmountTag":".psw-c-t-2",
-        "scrpprRateTag":".psw-t-title-m"
-    }'
-
-### Response
-
-    Status: 200
-    Content-Type: application/json
-
-    {
-        "message": "Asset GTA6 added with success!"
-    }
-
-
-## Remove Currency
-
-This endpoint removes currencies from this application. Needs authentication. Default coins can't be removed.
-
-### Request
-
-`DELETE /remove/:asset`
-
-    curl --location --request DELETE 'localhost:3100/remove/IOTA' \
-    --header 'Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRldGltZSI6MTcxNjE4NzE0MzA2MSwiaWF0IjoxNzE2MTg3MTQzLCJleHAiOjE3MTYxOTQzNDN9.kc862x0RNknfeGI3baiDfKatsSupwLO-MMzD-EJx50I'
-
-
-### Response
-
-    Status: 200
-    Content-Type: application/json
-
-    {
-        "message": "Asset GTA6 removed with success!"
-    }
-
+```json
+{"message":"Asset DEMOCOIN removed with success!"}
+```
