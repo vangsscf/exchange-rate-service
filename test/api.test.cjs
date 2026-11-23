@@ -6,13 +6,7 @@ const axios = require('axios');
 const { AppModule } = require('../build/app.module');
 const { CurrencyRepository } = require('../build/currencies/currency.repository');
 
-test('Nest API preserves the exchange-rate contract', async (t) => {
-    const fixtures = {
-        COINS: 'USD,EUR',
-        LOGIN: 'test-admin',
-        PASS: 'test-password',
-        SECRET: 'test-secret',
-    };
+function setEnvironment(t, fixtures) {
     const original = Object.fromEntries(Object.keys(fixtures).map(key => [key, process.env[key]]));
     Object.assign(process.env, fixtures);
     t.after(() => {
@@ -24,7 +18,9 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
             }
         }
     });
+}
 
+function createMemoryRepository() {
     const coins = new Map();
     const repository = {
         find: async symbol => structuredClone(coins.get(symbol) ?? null),
@@ -37,23 +33,10 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         },
         remove: async symbol => { coins.delete(symbol); },
     };
+    return { coins, repository };
+}
 
-    let euroRate = 0.5;
-    t.mock.method(axios, 'get', async (url) => {
-        switch (url) {
-            case 'https://rest.coinapi.io/v1/exchangerate/USD':
-                return { data: { rates: [{ asset_id_quote: 'EUR', rate: euroRate }] } };
-            case 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/map':
-                return { data: { data: [{ symbol: 'DEMO', id: 123 }] } };
-            case 'https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest':
-                return { data: { data: { 123: { quote: { USD: { price: 4 } } } } } };
-            case 'https://example.test/rates':
-                return { data: '<div id="price">R$6,00</div><div id="amount">$2</div>' };
-            default:
-                throw new Error('Unexpected fixture URL');
-        }
-    });
-
+async function startApi(t, repository) {
     const module = await Test.createTestingModule({ imports: [AppModule] })
         .overrideProvider(CurrencyRepository)
         .useValue(repository)
@@ -72,6 +55,37 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         },
         body: JSON.stringify(body),
     });
+    return { app, request, post };
+}
+
+test('Nest API preserves the exchange-rate contract', async (t) => {
+    const fixtures = {
+        DEMO_MODE: 'false',
+        COINS: 'USD,EUR',
+        LOGIN: 'test-admin',
+        PASS: 'test-password',
+        SECRET: 'test-secret',
+    };
+    setEnvironment(t, fixtures);
+    const { coins, repository } = createMemoryRepository();
+
+    let euroRate = 0.5;
+    t.mock.method(axios, 'get', async (url) => {
+        switch (url) {
+            case 'https://rest.coinapi.io/v1/exchangerate/USD':
+                return { data: { rates: [{ asset_id_quote: 'EUR', rate: euroRate }] } };
+            case 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/map':
+                return { data: { data: [{ symbol: 'DEMO', id: 123 }] } };
+            case 'https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest':
+                return { data: { data: { 123: { quote: { USD: { price: 4 } } } } } };
+            case 'https://example.test/rates':
+                return { data: '<div id="price">R$6,00</div><div id="amount">$2</div>' };
+            default:
+                throw new Error('Unexpected fixture URL');
+        }
+    });
+
+    const { app, request, post } = await startApi(t, repository);
 
     await t.test('seeds and refreshes configured assets before serving conversions', async () => {
         const response = await request('/conversion?from=USD&to=EUR&amount=10&decimalPlaces=2');
@@ -148,4 +162,46 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         const response = await request('/conversion?from=USD&to=EUR');
         assert.equal((await response.json()).value, '0.25000000');
     });
+});
+
+test('demo mode uses fixed rates without making outbound requests', async (t) => {
+    setEnvironment(t, {
+        DEMO_MODE: 'true',
+        COINS: 'CUSTOMSEED',
+        COINAPIKEY: '',
+        MCAPIKEY: '',
+        LOGIN: 'test-admin',
+        PASS: 'test-password',
+        SECRET: 'test-secret',
+    });
+
+    const outbound = t.mock.method(axios, 'get', async () => {
+        throw new Error('Unexpected outbound request in demo mode');
+    });
+    const { coins, repository } = createMemoryRepository();
+    const { app, request, post } = await startApi(t, repository);
+    const conversion = await request('/conversion?from=USD&to=BRL&amount=10&decimalPlaces=2');
+    assert.equal(conversion.status, 200);
+    assert.equal((await conversion.json()).value, '50.00');
+    assert.deepEqual([...coins.keys()], ['USD', 'BRL', 'EUR', 'BTC', 'ETH']);
+
+    const login = await post('/login', { login: 'test-admin', password: 'test-password' });
+    const { token } = await login.json();
+    const added = await post('/add', { symbol: 'CUSTOM', type: 'fixed', rate: 2.5 }, token);
+    assert.equal(added.status, 200);
+    assert.equal((await (await request('/conversion?from=CUSTOM&to=USD')).json()).value, '2.50000000');
+    assert.equal((await post('/add', { symbol: 'INVALID', type: 'fixed', rate: 0 }, token)).status, 400);
+
+    const scraped = await post('/add', {
+        symbol: 'WEB',
+        type: 'scrapper',
+        scrpprUrl: 'https://example.test/rates',
+        scrpprRateTag: '#price',
+    }, token);
+    assert.equal(scraped.status, 400);
+
+    const [job] = app.get(SchedulerRegistry).getCronJobs().values();
+    await job.fireOnTick();
+    assert.equal(coins.get('BRL').rate, '0.20');
+    assert.equal(outbound.mock.callCount(), 0);
 });

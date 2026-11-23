@@ -5,6 +5,7 @@ import BigNumber from 'bignumber.js';
 import { load } from 'cheerio';
 import { CurrencyRepository } from './currency.repository';
 import { Currency, CurrencyType } from './currency.types';
+import { demoRates, isDemoMode } from './demo-rates';
 
 type CoinApiRate = { asset_id_quote: string; rate: number };
 type MarketAsset = { symbol: string; id: number };
@@ -22,6 +23,10 @@ export class RatesService {
 
     @Cron(CronExpression.EVERY_MINUTE, { waitForCompletion: true })
     async refresh(): Promise<void> {
+        if (isDemoMode()) {
+            return;
+        }
+
         try {
             await this.loadProviderRates();
             const currencies = await this.repository.findAll();
@@ -37,6 +42,15 @@ export class RatesService {
     }
 
     async getRate(coin: Currency): Promise<Currency['rate']> {
+        if (isDemoMode()) {
+            const rate = coin.type === CurrencyType.fixed ? coin.rate : demoRates.get(coin.symbol);
+            const numericRate = new BigNumber(rate ?? NaN);
+            if (!numericRate.isFinite() || !numericRate.isGreaterThan(0)) {
+                throw new Error('Demo mode requires a built-in rate or a positive fixed rate');
+            }
+            return rate;
+        }
+
         const coinApiRate = this.coinApiRates.find(rate => rate.asset_id_quote === coin.symbol);
         if (coinApiRate?.rate) {
             return new BigNumber(1).dividedBy(coinApiRate.rate).toFixed(30);

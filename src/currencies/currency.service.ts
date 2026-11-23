@@ -3,6 +3,7 @@ import BigNumber from 'bignumber.js';
 import { JsonMessageException } from '../common/json-message.filter';
 import { CurrencyRepository } from './currency.repository';
 import { Currency, CurrencyType } from './currency.types';
+import { demoRates, isDemoMode } from './demo-rates';
 import { RatesService } from './rates.service';
 
 @Injectable()
@@ -13,13 +14,14 @@ export class CurrencyService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        const symbols = process.env.COINS?.split(',') ?? [];
+        const configuredSymbols = process.env.COINS?.split(',').filter(Boolean) ?? [];
+        const seedRates = isDemoMode() ? demoRates : new Map(configuredSymbols.map(symbol => [symbol, '1']));
         const currencies = await this.repository.findAll();
         const existing = new Set(currencies.map(coin => coin.symbol));
-        const seeds = symbols.filter(symbol => symbol && !existing.has(symbol)).map(symbol => ({
+        const seeds = [...seedRates].filter(([symbol]) => !existing.has(symbol)).map(([symbol, rate]) => ({
             symbol,
             type: CurrencyType.main,
-            rate: '1',
+            rate,
         }));
 
         await this.repository.saveAll(seeds);

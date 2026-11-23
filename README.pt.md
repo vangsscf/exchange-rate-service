@@ -6,12 +6,13 @@ API HTTP em NestJS e TypeScript que converte moedas fiduciárias, criptomoedas e
 
 ## Execução local
 
-Copie [`.env.example`](.env.example) para `.env`, informe as chaves das APIs de cotação e configure suas próprias credenciais administrativas e seu segredo de assinatura.
+Copie [`.env.example`](.env.example) para `.env` e configure suas próprias credenciais administrativas e seu segredo de assinatura. Informe as chaves das APIs se quiser usar cotações reais.
 
 | Variável | Finalidade |
 | --- | --- |
 | `PORT` | Porta HTTP da aplicação. O exemplo e o mapeamento do Compose usam `3100`. Se alterar a variável no Compose, ajuste também a porta do contêiner no mapeamento. |
 | `COINS` | Símbolos separados por vírgula para cadastro inicial. O exemplo cadastra `USD,BRL,EUR,BTC,ETH`. Use os símbolos com a mesma grafia, incluindo maiúsculas e minúsculas, e mantenha `USD` como moeda-base. |
+| `DEMO_MODE` | Use `true` para ativar as cotações fixas de demonstração. O padrão é `false`. |
 | `COINAPIKEY` | Chave da CoinAPI para consultar cotações em USD. |
 | `MCAPIKEY` | Chave da CoinMarketCap para consultar o mapa de símbolos e as cotações em USD. |
 | `REDIS` | URL do Redis. Use `redis://redis:6379` com o Redis do Compose ou `redis://127.0.0.1:6379` com o Redis e a aplicação na mesma máquina. |
@@ -33,7 +34,13 @@ npm run start:dev
 
 `npm run start:dev` usa a CLI do Nest com recarga automática. Em produção, execute `npm run build` e depois `npm run start:prod`. Execute `npm test` para compilar e verificar os endpoints HTTP e a atualização agendada com armazenamento em memória e respostas simuladas dos provedores. Os exemplos abaixo usam um shell compatível com POSIX e `http://localhost:3100`.
 
-O serviço cadastra as moedas configuradas e tenta obter as primeiras cotações antes de aceitar requisições. Depois, atualiza as cotações a cada minuto. Se a primeira atualização falhar, as moedas recém-cadastradas mantêm a cotação provisória de 1. As limitações conhecidas estão em [ISSUES.md](ISSUES.md).
+No modo normal, o serviço cadastra as moedas configuradas e tenta obter as primeiras cotações antes de aceitar requisições. Depois, atualiza as cotações a cada minuto. Se a primeira atualização falhar, as moedas recém-cadastradas mantêm a cotação provisória de 1. As limitações conhecidas estão em [ISSUES.md](ISSUES.md).
+
+### Modo de demonstração
+
+Defina `DEMO_MODE=true` no arquivo `.env` e reinicie a aplicação. Com o Compose, recrie o contêiner da aplicação para aplicar a nova configuração. O modo de demonstração usa cotações ilustrativas de 1 USD, 0,20 USD por BRL, 1,10 USD por EUR, 60.000 USD por BTC e 3.000 USD por ETH. Essas cinco moedas são cadastradas independentemente de `COINS`. Por exemplo, a conversão de 10 USD para BRL retorna 50 BRL.
+
+O modo de demonstração dispensa consultas aos provedores e a coleta de dados de páginas. Você pode cadastrar outras moedas como `fixed` com uma cotação positiva. O Redis continua sendo necessário e armazena as moedas de demonstração separadamente das moedas do modo normal. Defina `DEMO_MODE=false` e reinicie a aplicação para voltar às cotações reais.
 
 ## Converter moedas
 
@@ -91,7 +98,7 @@ curl 'http://localhost:3100/refresh' -H 'Authorization: YOUR_JWT'
 | `scrpprRateAsset` | Símbolo opcional da moeda do preço, já cadastrado no Redis. O padrão é USD. |
 | `scrpprDecimalSymbol` | Separador decimal opcional, `,` ou `.`. O padrão é `,`. |
 
-Todos os tipos verificam primeiro as cotações carregadas da CoinAPI e depois o mapa de símbolos da CoinMarketCap antes de usar uma cotação fixa ou coletar dados de uma página. A coleta espera encontrar um trecho de texto com `$` em cada seletor configurado. O serviço busca uma cotação antes de salvar o registro. Alguns valores de entrada ainda podem gerar cotações inválidas.
+No modo normal, todos os tipos verificam primeiro as cotações carregadas da CoinAPI e depois o mapa de símbolos da CoinMarketCap antes de usar uma cotação fixa ou coletar dados de uma página. A coleta espera encontrar um trecho de texto com `$` em cada seletor configurado. O serviço busca uma cotação antes de salvar o registro. Alguns valores de entrada ainda podem gerar cotações inválidas.
 
 ```sh
 curl 'http://localhost:3100/add' \

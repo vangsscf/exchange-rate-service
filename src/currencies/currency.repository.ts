@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { createClient } from 'redis';
 import { Currency } from './currency.types';
-
-const key = 'coins';
+import { isDemoMode } from './demo-rates';
 
 @Injectable()
 export class CurrencyRepository implements OnApplicationShutdown {
+    private readonly key = isDemoMode() ? 'coins:demo' : 'coins';
     private readonly logger = new Logger(CurrencyRepository.name);
     private readonly client = createClient({ url: process.env.REDIS })
         .on('error', (error: Error) => this.logger.error(error.message));
@@ -19,7 +19,7 @@ export class CurrencyRepository implements OnApplicationShutdown {
 
     async save(coin: Currency): Promise<void> {
         const client = await this.getClient();
-        await client.hSet(key, coin.symbol, JSON.stringify(coin));
+        await client.hSet(this.key, coin.symbol, JSON.stringify(coin));
     }
 
     async saveAll(coins: Currency[]): Promise<void> {
@@ -29,23 +29,23 @@ export class CurrencyRepository implements OnApplicationShutdown {
 
         const client = await this.getClient();
         const fields = coins.map(coin => [coin.symbol, JSON.stringify(coin)] as [string, string]);
-        await client.hSet(key, fields);
+        await client.hSet(this.key, fields);
     }
 
     async remove(symbol: string): Promise<void> {
         const client = await this.getClient();
-        await client.hDel(key, symbol);
+        await client.hDel(this.key, symbol);
     }
 
     async findAll(): Promise<Currency[]> {
         const client = await this.getClient();
-        const values = await client.hVals(key);
+        const values = await client.hVals(this.key);
         return values.map(value => JSON.parse(value) as Currency);
     }
 
     async find(symbol: string): Promise<Currency | null> {
         const client = await this.getClient();
-        const value = await client.hGet(key, symbol);
+        const value = await client.hGet(this.key, symbol);
         return value == null ? null : JSON.parse(value) as Currency;
     }
 
