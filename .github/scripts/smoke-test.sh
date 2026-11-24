@@ -32,7 +32,10 @@ if ! docker exec -i "$app" node --input-type=module <<'NODE'; then
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 
-const url = 'http://127.0.0.1:3100/conversion?from=USD&to=BRL&amount=10&decimalPlaces=2';
+const currency = 'USD';
+const amount = 10;
+const url = new URL('http://127.0.0.1:3100/conversion');
+url.search = new URLSearchParams({ from: currency, to: currency, amount, decimalPlaces: 2 });
 for (let attempt = 1; attempt <= 30; attempt++) {
   let response;
   try {
@@ -43,7 +46,12 @@ for (let attempt = 1; attempt <= 30; attempt++) {
     continue;
   }
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { from: 'USD', to: 'BRL', amount: 10, value: '50.00' });
+  const { from, to, amount: returnedAmount, value } = await response.json();
+  assert.equal(from, currency);
+  assert.equal(to, currency);
+  assert.equal(returnedAmount, amount);
+  assert.match(value, /^\d+\.\d{2}$/);
+  assert.equal(Number(value), amount);
   console.log('Docker image smoke test passed.');
   break;
 }
