@@ -51,7 +51,7 @@ async function startApi(t, repository) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(token ? { Authorization: token } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(body),
     });
@@ -99,7 +99,7 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
     });
 
     let token;
-    await t.test('issues and refreshes a JWT with the legacy authorization format', async () => {
+    await t.test('requires a Bearer JWT in the Authorization header', async () => {
         const denied = await post('/login', { login: fixtures.LOGIN, password: 'wrong' });
         assert.equal(denied.status, 401);
         assert.equal(await denied.json(), 'Unauthorized');
@@ -111,12 +111,18 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         const missing = await request('/refresh');
         assert.equal(missing.status, 401);
         assert.equal(await missing.json(), 'Unauthorized');
-        const invalid = await request('/refresh', { headers: { Authorization: 'invalid' } });
+        const invalid = await request('/refresh', { headers: { Authorization: 'Bearer invalid' } });
         assert.equal(invalid.status, 400);
         assert.equal(await invalid.json(), 'Invalid or expired token');
-        const refresh = await request('/refresh', { headers: { Authorization: token } });
+        const raw = await request('/refresh', { headers: { Authorization: token } });
+        assert.equal(raw.status, 401);
+        const query = await request(`/refresh?Authorization=${encodeURIComponent(token)}`);
+        assert.equal(query.status, 401);
+        const refresh = await request('/refresh', { headers: { Authorization: `Bearer ${token}` } });
         assert.equal(refresh.status, 200);
         assert.ok((await refresh.json()).token);
+        const lowercase = await request('/refresh', { headers: { Authorization: `bearer ${token}` } });
+        assert.equal(lowercase.status, 200);
     });
 
     await t.test('adds and removes custom assets and protects existing main assets', async () => {
@@ -143,10 +149,10 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
 
         const changed = await post('/add', { ...customAsset, symbol: 'USD' }, token);
         assert.equal(changed.status, 404);
-        const main = await request('/remove/USD', { method: 'DELETE', headers: { Authorization: token } });
+        const main = await request('/remove/USD', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
         assert.equal(main.status, 400);
 
-        const removed = await request('/remove/CUSTOM', { method: 'DELETE', headers: { Authorization: token } });
+        const removed = await request('/remove/CUSTOM', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
         assert.equal(removed.status, 200);
         assert.deepEqual(await removed.json(), { message: 'Asset CUSTOM removed with success!' });
         assert.equal(coins.has('CUSTOM'), false);

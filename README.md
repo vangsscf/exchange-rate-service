@@ -25,6 +25,8 @@ With Docker and Compose installed, run:
 docker compose up --build
 ```
 
+Compose keeps Redis on its internal network and waits for it to respond before starting the API. For development without Compose, use a Redis instance reachable from the host.
+
 For development without Docker, install Node.js 20.11 or newer and npm, start a Redis server reachable at `REDIS`, and run:
 
 ```sh
@@ -44,7 +46,7 @@ Demo mode skips provider and scraper requests. You can add custom currencies as 
 
 ## CI/CD with GitHub Actions
 
-Pull requests targeting `main` run `npm ci` and `npm test` and verify that the Docker image builds. On each push to `main`, GitHub Actions runs the tests and, if they pass, publishes the image to the GitHub Container Registry with the full commit SHA as its tag.
+Pull requests targeting `main` run `npm ci` and `npm test`, then build the Docker image and verify a demo conversion against Redis. Pushes to `main` run the same checks and publish the tested image to the GitHub Container Registry with the full commit SHA as its tag.
 
 Publishing uses the workflow's built-in `GITHUB_TOKEN`. To run a published image, replace `<commit-sha>` with the SHA of the version you want and set `REDIS` in `.env` to a URL the container can reach. To pull a private image, sign in to `ghcr.io` with a personal access token (classic) that has `read:packages` and read access to the package. [GitHub Container Registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic)
 
@@ -56,7 +58,7 @@ docker run --rm --env-file .env -p 3100:3100 ghcr.io/vangsscf/exchange-rate-serv
 
 Under **Settings → Secrets and variables → Actions**, create the `OPENROUTER_API_KEY` secret. The `OPENROUTER_MODEL` variable is optional. The default model is `openai/gpt-5.4-mini`, which OpenRouter charges for. [Model and pricing](https://openrouter.ai/openai/gpt-5.4-mini)
 
-The workflow reviews PRs ready for review from branches in this repository targeting `main`. Each eligible update sends up to 60,000 bytes of the diff to OpenRouter. Find the review in Portuguese under **Actions → PR review with OpenRouter → Summary**.
+The workflow reviews PRs ready for review from branches in this repository targeting `main`. The review job fails if the repository secret is missing and skips forks and drafts. Each eligible update sends up to 60,000 bytes of JSON containing complete textual patches and their file metadata. The English report lists included and omitted files under **Actions → PR review with OpenRouter → Summary**.
 
 ## Convert currency
 
@@ -91,12 +93,12 @@ curl 'http://localhost:3100/login' \
   --data '{"login":"YOUR_LOGIN","password":"YOUR_PASSWORD"}'
 ```
 
-A successful response is `200 OK` with `{"token":"<JWT>"}`. Tokens expire after two hours. Use the raw JWT as the `Authorization` header value, omitting the `Bearer` prefix. Replace `YOUR_JWT` in the examples with the token returned by login.
+A successful response is `200 OK` with `{"token":"<JWT>"}`. Tokens expire after two hours. Send the JWT in the `Authorization: Bearer <JWT>` header. Replace `YOUR_JWT` in the examples with the token returned by login.
 
 `GET /refresh` requires a valid, unexpired token and returns a newly signed token in the same response format.
 
 ```sh
-curl 'http://localhost:3100/refresh' -H 'Authorization: YOUR_JWT'
+curl 'http://localhost:3100/refresh' -H 'Authorization: Bearer YOUR_JWT'
 ```
 
 ## Add a currency
@@ -118,7 +120,7 @@ In live mode, all types check the loaded CoinAPI quotes and then the CoinMarketC
 
 ```sh
 curl 'http://localhost:3100/add' \
-  -H 'Authorization: YOUR_JWT' \
+  -H 'Authorization: Bearer YOUR_JWT' \
   -H 'Content-Type: application/json' \
   --data '{"symbol":"DEMOCOIN","type":"fixed","rate":2.5}'
 ```
@@ -135,7 +137,7 @@ Example `200 OK` response:
 
 ```sh
 curl -X DELETE 'http://localhost:3100/remove/DEMOCOIN' \
-  -H 'Authorization: YOUR_JWT'
+  -H 'Authorization: Bearer YOUR_JWT'
 ```
 
 Example `200 OK` response:

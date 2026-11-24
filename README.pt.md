@@ -25,6 +25,8 @@ Com Docker e Compose instalados, execute:
 docker compose up --build
 ```
 
+O Compose mantém o Redis na rede interna e espera que ele responda antes de iniciar a API. Para desenvolver sem Compose, use uma instância do Redis acessível a partir do host.
+
 Para desenvolver sem Docker, instale Node.js 20.11 ou superior e npm, inicie um servidor Redis acessível pela URL em `REDIS` e execute:
 
 ```sh
@@ -44,7 +46,7 @@ O modo de demonstração dispensa consultas aos provedores e a coleta de dados d
 
 ## CI/CD no GitHub Actions
 
-Pull requests para `main` executam `npm ci`, `npm test` e verificam a compilação da imagem Docker. A cada push em `main`, o GitHub Actions roda os testes e, se passarem, publica a imagem no GitHub Container Registry com a tag do SHA completo do commit.
+Pull requests para `main` executam `npm ci` e `npm test`, compilam a imagem Docker e verificam uma conversão em modo de demonstração com Redis. Pushes em `main` executam as mesmas verificações e publicam a imagem testada no GitHub Container Registry com a tag do SHA completo do commit.
 
 A publicação usa o `GITHUB_TOKEN` do próprio workflow. Para executar uma imagem publicada, substitua `<commit-sha>` pelo SHA da versão e defina `REDIS` no `.env` com uma URL acessível pelo contêiner. Para baixar uma imagem privada, autentique-se em `ghcr.io` com um token de acesso pessoal clássico com o escopo `read:packages` e acesso de leitura ao pacote. [Documentação do GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic)
 
@@ -56,7 +58,7 @@ docker run --rm --env-file .env -p 3100:3100 ghcr.io/vangsscf/exchange-rate-serv
 
 Em **Settings → Secrets and variables → Actions**, crie o secret `OPENROUTER_API_KEY`. A variável `OPENROUTER_MODEL` é opcional. O modelo padrão é `openai/gpt-5.4-mini`, que é cobrado pela OpenRouter. [Modelo e preços](https://openrouter.ai/openai/gpt-5.4-mini)
 
-O workflow revisa PRs prontos para revisão, abertos no próprio repositório e direcionados a `main`. A cada atualização elegível, até 60.000 bytes do diff são enviados à OpenRouter. O parecer em português fica em **Actions → PR review with OpenRouter → Summary**.
+O workflow revisa PRs prontos para revisão, abertos no próprio repositório e direcionados a `main`. O job falha se o secret do repositório estiver ausente e é ignorado em forks e rascunhos. A cada atualização elegível, o workflow envia até 60.000 bytes de JSON com patches textuais completos e metadados dos arquivos. O parecer em inglês lista os arquivos incluídos e omitidos em **Actions → PR review with OpenRouter → Summary**.
 
 ## Converter moedas
 
@@ -91,12 +93,12 @@ curl 'http://localhost:3100/login' \
   --data '{"login":"YOUR_LOGIN","password":"YOUR_PASSWORD"}'
 ```
 
-A resposta de sucesso é `200 OK` com `{"token":"<JWT>"}`. O token expira em duas horas. Use o JWT diretamente no cabeçalho `Authorization`, sem o prefixo `Bearer`. Substitua `YOUR_JWT` nos exemplos pelo token recebido no login.
+A resposta de sucesso é `200 OK` com `{"token":"<JWT>"}`. O token expira em duas horas. Envie o JWT no cabeçalho `Authorization: Bearer <JWT>`. Substitua `YOUR_JWT` nos exemplos pelo token recebido no login.
 
 `GET /refresh` exige um token válido e ainda não expirado e devolve um novo token assinado no mesmo formato de resposta.
 
 ```sh
-curl 'http://localhost:3100/refresh' -H 'Authorization: YOUR_JWT'
+curl 'http://localhost:3100/refresh' -H 'Authorization: Bearer YOUR_JWT'
 ```
 
 ## Adicionar uma moeda
@@ -118,7 +120,7 @@ No modo normal, todos os tipos verificam primeiro as cotações carregadas da Co
 
 ```sh
 curl 'http://localhost:3100/add' \
-  -H 'Authorization: YOUR_JWT' \
+  -H 'Authorization: Bearer YOUR_JWT' \
   -H 'Content-Type: application/json' \
   --data '{"symbol":"DEMOCOIN","type":"fixed","rate":2.5}'
 ```
@@ -135,7 +137,7 @@ Exemplo de resposta `200 OK`:
 
 ```sh
 curl -X DELETE 'http://localhost:3100/remove/DEMOCOIN' \
-  -H 'Authorization: YOUR_JWT'
+  -H 'Authorization: Bearer YOUR_JWT'
 ```
 
 Exemplo de resposta `200 OK`:

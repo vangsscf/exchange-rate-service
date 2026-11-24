@@ -20,9 +20,9 @@ The add route now checks the stored symbol and protects records with type `main`
 
 The scraper accepts an administrator-supplied URL and imposes a timeout. Destination, redirect, and response-size policies are still missing. Restrict outbound access to approved destinations and apply response-size limits. [Add validation](src/currencies/currency.controller.ts) · [Scraper request](src/currencies/rates.service.ts)
 
-### 6. Compose publishes Redis, and configuration files exist in Git history
+### 6. Configuration files exist in Git history
 
-The Docker build now excludes local environment files and Git metadata. Compose still publishes Redis on host port 6379 without authentication configured. Git history contains older versions of `.env` and `.env.example`. Restrict Redis access and check whether any historical values need rotation. [Docker ignore rules](.dockerignore) · [Compose configuration](docker-compose.yml)
+The Docker build excludes local environment files and Git metadata. Git history contains older versions of `.env` and `.env.example`. Check whether any historical values need rotation. [Docker ignore rules](.dockerignore)
 
 ## Medium priority
 
@@ -36,11 +36,11 @@ The scraper expects a space-delimited token containing `$` in both selectors. Pl
 
 ### 10. Authentication defaults and transport need hardening
 
-The environment template contains an easy-to-copy password and signing secret. Login has no attempt limits, and the JWT guard still accepts a token in the query string, where it can appear in logs. Require a strong configured secret, rate-limit login, and migrate clients to header-only authentication. [Environment template](.env.example) · [Authentication service](src/auth/auth.service.ts) · [JWT guard](src/auth/jwt-auth.guard.ts)
+The environment template contains an easy-to-copy password and signing secret. Login has no attempt limits. Require a strong configured secret and rate-limit login. [Environment template](.env.example) · [Authentication service](src/auth/auth.service.ts)
 
-### 11. Redis readiness and persistence are unmanaged
+### 11. Redis image version and persistence are unmanaged
 
-The Node image uses a fixed major version and installs from the lockfile. Compose starts Redis before the app, but no health check or explicit data volume is configured. The Redis image still uses a floating tag. Pin Redis and manage service readiness and data persistence explicitly. [Dockerfile](Dockerfile) · [Compose configuration](docker-compose.yml)
+Compose waits for Redis to respond to a health check before starting the app. The Redis image uses a floating tag and Compose has no explicit data volume. Pin Redis and manage data persistence explicitly. [Compose configuration](docker-compose.yml)
 
 ## Addressed in the NestJS migration
 

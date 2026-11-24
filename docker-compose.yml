@@ -4,7 +4,8 @@ services:
       context: ./
     env_file: ./.env
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     ports:
       - 3100:3100
     networks:
@@ -12,8 +13,11 @@ services:
   redis:
     image: redis
     command: redis-server
-    ports:
-      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
     networks:
       - exchange-rate-service
 networks:
