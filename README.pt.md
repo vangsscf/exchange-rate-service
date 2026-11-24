@@ -15,19 +15,31 @@ Copie [`.env.example`](.env.example) para `.env` e configure suas próprias cred
 | `DEMO_MODE` | Use `true` para ativar as cotações fixas de demonstração. O padrão é `false`. |
 | `COINAPIKEY` | Chave da CoinAPI para consultar cotações em USD. |
 | `MCAPIKEY` | Chave da CoinMarketCap para consultar o mapa de símbolos e as cotações em USD. |
-| `REDIS` | URL do Redis. Use `redis://redis:6379` com o Redis do Compose ou `redis://127.0.0.1:6379` com o Redis e a aplicação na mesma máquina. |
+| `REDIS` | URL do Redis acessível ao processo da API. Escolha a URL de acordo com a forma de execução abaixo. |
 | `LOGIN`, `PASS` | Credenciais do único administrador. |
 | `SECRET` | Segredo de assinatura do JWT. |
 
-Com Docker e Compose instalados, execute:
+### Executar a API e o Redis com Compose
+
+Mantenha `REDIS=redis://redis:6379` no `.env` e execute:
 
 ```sh
 docker compose up --build
 ```
 
-O Compose mantém o Redis na rede interna e espera que ele responda antes de iniciar a API. Para desenvolver sem Compose, use uma instância do Redis acessível a partir do host.
+`redis` é o nome do serviço na rede do Compose. O Redis incluído é acessível pelo contêiner da API e não tem uma porta publicada no host. O Compose espera que o Redis responda antes de iniciar a API.
 
-Para desenvolver sem Docker, instale Node.js 20.11 ou superior e npm, inicie um servidor Redis acessível pela URL em `REDIS` e execute:
+### Executar a API diretamente na sua máquina
+
+Instale Node.js 20.11 ou superior e npm. Inicie uma instância separada do Redis acessível a partir da sua máquina. Se o Redis estiver escutando na porta local `6379`, defina `REDIS=redis://127.0.0.1:6379` no `.env`. Para uma instância remota existente, use a URL de conexão dela.
+
+Se você tiver o Docker e precisar de uma instância local do Redis, execute este comando em outro terminal para publicar o Redis na interface de loopback:
+
+```sh
+docker run --rm -p 127.0.0.1:6379:6379 redis
+```
+
+Com o Redis em execução, inicie a API:
 
 ```sh
 npm ci

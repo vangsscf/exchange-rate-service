@@ -15,19 +15,31 @@ Copy [`.env.example`](.env.example) to `.env` and set your own admin credentials
 | `DEMO_MODE` | Set to `true` for fixed demo rates. The default is `false`. |
 | `COINAPIKEY` | CoinAPI key for the USD exchange-rate feed. |
 | `MCAPIKEY` | CoinMarketCap API key for the symbol map and USD quotes. |
-| `REDIS` | Redis URL. Use `redis://redis:6379` with bundled Compose Redis or `redis://127.0.0.1:6379` with Redis on the same host as a locally run app. |
+| `REDIS` | Redis URL reachable from the API process. Choose the URL for your setup below. |
 | `LOGIN`, `PASS` | Credentials for the single administrator. |
 | `SECRET` | JWT signing secret. |
 
-With Docker and Compose installed, run:
+### Run the API and Redis with Compose
+
+Keep `REDIS=redis://redis:6379` in `.env` and run:
 
 ```sh
 docker compose up --build
 ```
 
-Compose keeps Redis on its internal network and waits for it to respond before starting the API. For development without Compose, use a Redis instance reachable from the host.
+`redis` is the service name on the Compose network. The bundled Redis is reachable from the API container and has no published host port. Compose waits for Redis to respond before starting the API.
 
-For development without Docker, install Node.js 20.11 or newer and npm, start a Redis server reachable at `REDIS`, and run:
+### Run the API directly on your machine
+
+Install Node.js 20.11 or newer and npm. Start a separate Redis instance reachable from your machine. If Redis is listening on local port `6379`, set `REDIS=redis://127.0.0.1:6379` in `.env`. For an existing remote instance, use its connection URL.
+
+If you have Docker and need a local Redis instance, run this command in a separate terminal to publish Redis on the loopback interface:
+
+```sh
+docker run --rm -p 127.0.0.1:6379:6379 redis
+```
+
+Once Redis is running, start the API:
 
 ```sh
 npm ci
