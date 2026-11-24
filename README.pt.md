@@ -42,6 +42,22 @@ Defina `DEMO_MODE=true` no arquivo `.env` e reinicie a aplicação. Com o Compos
 
 O modo de demonstração dispensa consultas aos provedores e a coleta de dados de páginas. Você pode cadastrar outras moedas como `fixed` com uma cotação positiva. O Redis continua sendo necessário e armazena as moedas de demonstração separadamente das moedas do modo normal. Defina `DEMO_MODE=false` e reinicie a aplicação para voltar às cotações reais.
 
+## CI/CD no GitHub Actions
+
+Pull requests para `main` executam `npm ci`, `npm test` e verificam a compilação da imagem Docker. A cada push em `main`, o GitHub Actions roda os testes e, se passarem, publica a imagem no GitHub Container Registry com a tag do SHA completo do commit.
+
+A publicação usa o `GITHUB_TOKEN` do próprio workflow. Para executar uma imagem publicada, substitua `<commit-sha>` pelo SHA da versão e defina `REDIS` no `.env` com uma URL acessível pelo contêiner. Para baixar uma imagem privada, autentique-se em `ghcr.io` com um token de acesso pessoal clássico com o escopo `read:packages` e acesso de leitura ao pacote. [Documentação do GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic)
+
+```sh
+docker run --rm --env-file .env -p 3100:3100 ghcr.io/vangsscf/exchange-rate-service:<commit-sha>
+```
+
+### Revisão de PRs com OpenRouter
+
+Em **Settings → Secrets and variables → Actions**, crie o secret `OPENROUTER_API_KEY`. A variável `OPENROUTER_MODEL` é opcional. O modelo padrão é `openai/gpt-5.4-mini`, que é cobrado pela OpenRouter. [Modelo e preços](https://openrouter.ai/openai/gpt-5.4-mini)
+
+O workflow revisa PRs prontos para revisão, abertos no próprio repositório e direcionados a `main`. A cada atualização elegível, até 60.000 bytes do diff são enviados à OpenRouter. O parecer em português fica em **Actions → PR review with OpenRouter → Summary**.
+
 ## Converter moedas
 
 `GET /conversion` é público.
