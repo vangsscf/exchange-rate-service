@@ -60,6 +60,8 @@ Em **Settings → Secrets and variables → Actions**, crie o secret `OPENROUTER
 
 O workflow revisa PRs prontos para revisão, abertos no próprio repositório e direcionados a `main`. O job falha se o secret do repositório estiver ausente e é ignorado em forks e rascunhos. A cada atualização elegível, o workflow envia até 60.000 bytes de JSON com patches textuais completos e metadados dos arquivos. O parecer em inglês lista os arquivos incluídos e omitidos em **Actions → PR review with OpenRouter → Summary**.
 
+A verificação falha se a lista de arquivos do GitHub não puder ser confirmada ou se algum patch estiver ausente, incompleto ou exceder o limite de tamanho. Os resultados parciais ficam no resumo. Revise as alterações omitidas na aba **Files changed** do PR. Arquivos de ambiente ficam fora da revisão automatizada e aparecem no resumo para revisão manual, sem causar falha por si só.
+
 ## Converter moedas
 
 `GET /conversion` é público.

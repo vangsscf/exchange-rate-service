@@ -60,6 +60,8 @@ Under **Settings → Secrets and variables → Actions**, create the `OPENROUTER
 
 The workflow reviews PRs ready for review from branches in this repository targeting `main`. The review job fails if the repository secret is missing and skips forks and drafts. Each eligible update sends up to 60,000 bytes of JSON containing complete textual patches and their file metadata. The English report lists included and omitted files under **Actions → PR review with OpenRouter → Summary**.
 
+The check fails if the GitHub file list cannot be verified or a patch is missing, incomplete, or too large to include. Any partial findings remain in the summary. Review missing changes in the PR’s **Files changed** tab. Environment files are excluded from automated review and listed for manual review without failing the check on their own.
+
 ## Convert currency
 
 `GET /conversion` is public.

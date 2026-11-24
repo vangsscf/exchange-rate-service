@@ -28,6 +28,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-5.4-mini' }}
         run: |
@@ -36,7 +37,7 @@ jobs:
 
           const {
             GH_TOKEN, GITHUB_API_URL, GITHUB_REPOSITORY, GITHUB_STEP_SUMMARY,
-            PR_NUMBER, OPENROUTER_API_KEY, OPENROUTER_MODEL,
+            PR_NUMBER, PR_HEAD_SHA, OPENROUTER_API_KEY, OPENROUTER_MODEL,
           } = process.env;
           const diffLimit = 60_000;
           const summarize = (text) => appendFile(GITHUB_STEP_SUMMARY, `## PR review #${PR_NUMBER}\n\n${text}\n`);
@@ -65,32 +66,41 @@ jobs:
             throw new Error('The OPENROUTER_API_KEY repository secret is required.');
           }
 
-          const filesUrl = `${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files`;
+          const pullUrl = `${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}`;
           const headers = {
             Accept: 'application/vnd.github+json',
             Authorization: `Bearer ${GH_TOKEN}`,
             'X-GitHub-Api-Version': '2022-11-28',
           };
+          async function fetchGitHub(path) {
+            const response = await fetch(`${pullUrl}${path}`, {
+              headers, signal: AbortSignal.timeout(30_000),
+            });
+            if (!response.ok) throw new Error(`GitHub PR request failed (HTTP ${response.status}).`);
+            return response;
+          }
+
           const included = [];
           const omitted = [];
+          const environmentFiles = [];
+          const seenFiles = new Set();
           let remaining = diffLimit - 2; // JSON array brackets
           let hasNext = true;
           let listed = 0;
 
           for (let page = 1; hasNext && page <= 30; page++) {
-            const response = await fetch(`${filesUrl}?per_page=100&page=${page}`, {
-              headers, signal: AbortSignal.timeout(30_000),
-            });
-            if (!response.ok) throw new Error(`GitHub files request failed (HTTP ${response.status}).`);
+            const response = await fetchGitHub(`/files?per_page=100&page=${page}`);
             hasNext = /\brel="next"/.test(response.headers.get('link') ?? '');
             const files = await response.json();
             listed += files.length;
 
             for (const file of files) {
               const { filename, previous_filename, status, patch } = file;
+              if (seenFiles.has(filename)) continue;
+              seenFiles.add(filename);
               const path = JSON.stringify(filename);
               if ([filename, previous_filename].some(name => /(?:^|\/)\.env(?:\.|$)/i.test(name ?? ''))) {
-                omitted.push(`${path} — environment file`);
+                environmentFiles.push(path);
                 continue;
               }
               if (!patch?.startsWith('@@ ')) {
@@ -113,15 +123,30 @@ jobs:
             }
           }
 
+          const pull = await (await fetchGitHub('')).json();
+          if (pull.head?.sha !== PR_HEAD_SHA) {
+            await summarize('The PR head changed during this run. Review the latest commit in its workflow run.');
+            throw new Error('The PR head does not match this workflow run.');
+          }
+          if (!Number.isSafeInteger(pull.changed_files) || pull.changed_files < 0) {
+            await summarize('GitHub did not provide the changed-file count. Review coverage could not be verified.');
+            throw new Error('GitHub did not provide a valid changed-file count.');
+          }
+
+          const listIncomplete = hasNext || seenFiles.size !== listed || seenFiles.size !== pull.changed_files;
+          const incomplete = listIncomplete || omitted.length > 0;
           const plainText = text => text.split(/\r\n?|\n/).map(line => `    ${line}`).join('\n');
-          const coverage = [`### Coverage (${included.length} of ${listed} files listed by GitHub)`];
-          if (listed >= 3000 || hasNext) coverage.push('The GitHub API lists up to 3,000 files per PR. This report may omit files beyond that limit.');
+          const coverage = [`### Coverage (${included.length} of ${pull.changed_files} changed files selected for OpenRouter)`];
+          if (listIncomplete) coverage.push(`The GitHub file list could not be verified. It returned ${seenFiles.size} unique paths across ${listed} entries for ${pull.changed_files} changed files. The API returns at most 3,000 files per PR.`);
           if (included.length) coverage.push('Included files', plainText(included.map(file => JSON.stringify(file.filename)).join('\n')));
           if (omitted.length) coverage.push('Omitted files', plainText(omitted.join('\n')));
+          if (environmentFiles.length) coverage.push('Environment files excluded from automated review. Review them manually.', plainText(environmentFiles.join('\n')));
+          if (incomplete) coverage.push('Automated coverage is incomplete. This check fails. A maintainer should review the missing changes in the PR’s Files changed tab.');
           if (!included.length) coverage.push('There were no eligible patches to send to OpenRouter.');
           await summarize(coverage.join('\n\n'));
+          if (incomplete) process.exitCode = 1;
           if (!included.length) {
-            process.exit(0);
+            process.exit(process.exitCode ?? 0);
           }
 
           const reviewResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
