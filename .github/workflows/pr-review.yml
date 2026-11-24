@@ -40,6 +40,8 @@ jobs:
             PR_NUMBER, PR_HEAD_SHA, OPENROUTER_API_KEY, OPENROUTER_MODEL,
           } = process.env;
           const diffLimit = 60_000;
+          const pageSize = 100;
+          const fileLimit = 3_000;
           const summarize = (text) => appendFile(GITHUB_STEP_SUMMARY, `## PR review #${PR_NUMBER}\n\n${text}\n`);
 
           function isCompletePatch({ patch, additions, deletions }) {
@@ -87,12 +89,14 @@ jobs:
           let remaining = diffLimit - 2; // JSON array brackets
           let hasNext = true;
           let listed = 0;
+          let pagesRead = 0;
 
-          for (let page = 1; hasNext && page <= 30; page++) {
-            const response = await fetchGitHub(`/files?per_page=100&page=${page}`);
+          for (let page = 1; hasNext && page <= fileLimit / pageSize; page++) {
+            const response = await fetchGitHub(`/files?per_page=${pageSize}&page=${page}`);
             hasNext = /\brel="next"/.test(response.headers.get('link') ?? '');
             const files = await response.json();
             listed += files.length;
+            pagesRead++;
 
             for (const file of files) {
               const { filename, previous_filename, status, patch } = file;
@@ -133,20 +137,25 @@ jobs:
             throw new Error('GitHub did not provide a valid changed-file count.');
           }
 
-          const listIncomplete = hasNext || seenFiles.size !== listed || seenFiles.size !== pull.changed_files;
-          const incomplete = listIncomplete || omitted.length > 0;
+          const fileListCapped = pull.changed_files > fileLimit;
+          const expectedListed = Math.min(pull.changed_files, fileLimit);
+          const listUnverified = seenFiles.size !== listed || seenFiles.size !== expectedListed || (hasNext && !fileListCapped);
+          const partial = fileListCapped || omitted.length > 0;
           const plainText = text => text.split(/\r\n?|\n/).map(line => `    ${line}`).join('\n');
           const coverage = [`### Coverage (${included.length} of ${pull.changed_files} changed files selected for OpenRouter)`];
-          if (listIncomplete) coverage.push(`The GitHub file list could not be verified. It returned ${seenFiles.size} unique paths across ${listed} entries for ${pull.changed_files} changed files. The API returns at most 3,000 files per PR.`);
+          coverage.push(`Fetched ${pagesRead} GitHub file-list pages with ${seenFiles.size} unique paths across ${listed} entries.`);
+          if (fileListCapped) coverage.push(`GitHub lists at most 3,000 files per PR. This PR exceeds that limit by ${pull.changed_files - fileLimit}.`);
+          if (listUnverified) coverage.push(`The GitHub file list could not be verified. Expected ${expectedListed} unique paths within the API limit.`);
           if (included.length) coverage.push('Included files', plainText(included.map(file => JSON.stringify(file.filename)).join('\n')));
           if (omitted.length) coverage.push('Omitted files', plainText(omitted.join('\n')));
           if (environmentFiles.length) coverage.push('Environment files excluded from automated review. Review them manually.', plainText(environmentFiles.join('\n')));
-          if (incomplete) coverage.push('Automated coverage is incomplete. This check fails. A maintainer should review the missing changes in the PR’s Files changed tab.');
+          if (partial && included.length) coverage.push('Partial review. Review uncovered changes in the PR’s Files changed tab.');
           if (!included.length) coverage.push('There were no eligible patches to send to OpenRouter.');
           await summarize(coverage.join('\n\n'));
-          if (incomplete) process.exitCode = 1;
+          if (listUnverified) throw new Error('GitHub returned an inconsistent PR file list.');
           if (!included.length) {
-            process.exit(process.exitCode ?? 0);
+            if (partial) throw new Error('Changed files were omitted and no patches could be reviewed.');
+            process.exit(0);
           }
 
           const reviewResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {

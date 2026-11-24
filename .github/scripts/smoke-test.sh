@@ -1,61 +1,88 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image=${1:?Usage: smoke-test.sh IMAGE}
-network="exchange-rate-smoke-$$"
-redis="${network}-redis"
-app="${network}-app"
+export SMOKE_IMAGE=${1:?Usage: smoke-test.sh IMAGE}
+override=$(mktemp)
+compose=(docker compose --project-name "exchange-rate-smoke-$$" --env-file .env.example
+  -f docker-compose.yml -f "$override")
 
 cleanup() {
-  docker rm -f "$app" "$redis" >/dev/null 2>&1 || true
-  docker network rm "$network" >/dev/null 2>&1 || true
+  "${compose[@]}" down --volumes >/dev/null 2>&1 || true
+  rm -f -- "$override"
 }
 trap cleanup EXIT
 
-docker network create "$network" >/dev/null
-docker run -d --name "$redis" --network "$network" redis >/dev/null
-for attempt in {1..30}; do
-  if [[ $(docker exec "$redis" redis-cli ping 2>/dev/null) == PONG ]]; then
-    break
-  fi
-  if (( attempt == 30 )); then
-    docker logs "$redis" >&2
-    exit 1
-  fi
-  sleep 1
-done
+cat > "$override" <<'YAML'
+services:
+  app:
+    image: ${SMOKE_IMAGE:?}
+    pull_policy: never
+    env_file: !reset []
+    ports: !reset []
+    environment:
+      PORT: '3100'
+      DEMO_MODE: 'true'
+      REDIS: redis://redis:6379
+      LOGIN: smoke-admin
+      PASS: smoke-password
+      SECRET: smoke-test-signing-secret
+YAML
 
-docker run -d --name "$app" --network "$network" \
-  -e PORT=3100 -e DEMO_MODE=true -e REDIS="redis://$redis:6379" "$image" >/dev/null
+if ! "${compose[@]}" up --no-build --wait --wait-timeout 60; then
+  "${compose[@]}" logs --no-color >&2
+  exit 1
+fi
 
-if ! docker exec -i "$app" node --input-type=module <<'NODE'; then
+if ! "${compose[@]}" exec -T app node --input-type=module <<'NODE'; then
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 
-const currency = 'USD';
-const amount = 10;
-const url = new URL('http://127.0.0.1:3100/conversion');
-url.search = new URLSearchParams({ from: currency, to: currency, amount, decimalPlaces: 2 });
+const baseUrl = 'http://127.0.0.1:3100';
+const request = (path, options) => fetch(baseUrl + path, { ...options, signal: AbortSignal.timeout(3_000) });
 for (let attempt = 1; attempt <= 30; attempt++) {
   let response;
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
+    response = await request('/conversion?from=USD&to=USD');
   } catch (error) {
     if (attempt === 30) throw error;
     await setTimeout(1_000);
     continue;
   }
   assert.equal(response.status, 200);
-  const { from, to, amount: returnedAmount, value } = await response.json();
-  assert.equal(from, currency);
-  assert.equal(to, currency);
-  assert.equal(returnedAmount, amount);
-  assert.match(value, /^\d+\.\d{2}$/);
-  assert.equal(Number(value), amount);
-  console.log('Docker image smoke test passed.');
+  await response.json();
   break;
 }
+
+const post = (path, body, authorization = {}) => request(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...authorization },
+  body: JSON.stringify(body),
+});
+const login = await post('/login', { login: process.env.LOGIN, password: process.env.PASS });
+assert.equal(login.status, 200);
+const { token } = await login.json();
+assert.ok(typeof token === 'string' && token.length > 0);
+const headers = { Authorization: `Bearer ${token}` };
+
+for (const [symbol, rate] of [['SMOKEFROM', 2], ['SMOKETO', 4]]) {
+  const added = await post('/add', { symbol, type: 'fixed', rate }, headers);
+  assert.equal(added.status, 200);
+  assert.deepEqual(await added.json(), { message: `Asset ${symbol} added with success!` });
+}
+
+const conversionPath = '/conversion?from=SMOKEFROM&to=SMOKETO&amount=10&decimalPlaces=2';
+const conversion = await request(conversionPath);
+assert.equal(conversion.status, 200);
+assert.deepEqual(await conversion.json(), { from: 'SMOKEFROM', to: 'SMOKETO', amount: 10, value: '5.00' });
+
+const removed = await request('/remove/SMOKETO', { method: 'DELETE', headers });
+assert.equal(removed.status, 200);
+assert.deepEqual(await removed.json(), { message: 'Asset SMOKETO removed with success!' });
+const missing = await request(conversionPath);
+assert.equal(missing.status, 404);
+assert.deepEqual(await missing.json(), { response: 'SMOKETO not found' });
+console.log('Compose smoke test passed.');
 NODE
-  docker logs "$app" >&2
+  "${compose[@]}" logs --no-color >&2
   exit 1
 fi

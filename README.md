@@ -58,7 +58,7 @@ Demo mode skips provider and scraper requests. You can add custom currencies as 
 
 ## CI/CD with GitHub Actions
 
-Pull requests targeting `main` run `npm ci` and `npm test`, then build the Docker image and verify a demo conversion against Redis. Pushes to `main` run the same checks and publish the tested image to the GitHub Container Registry with the full commit SHA as its tag.
+Pull requests targeting `main` run `npm ci` and `npm test`, then build the Docker image and start it with Compose and Redis. The smoke test logs in, adds two fixed-rate currencies, converts between them, and verifies deletion. Pushes to `main` run the same checks and publish the tested image to the GitHub Container Registry with the full commit SHA as its tag.
 
 Publishing uses the workflow's built-in `GITHUB_TOKEN`. To run a published image, replace `<commit-sha>` with the SHA of the version you want and set `REDIS` in `.env` to a URL the container can reach. To pull a private image, sign in to `ghcr.io` with a personal access token (classic) that has `read:packages` and read access to the package. [GitHub Container Registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic)
 
@@ -72,7 +72,7 @@ Under **Settings → Secrets and variables → Actions**, create the `OPENROUTER
 
 The workflow reviews PRs ready for review from branches in this repository targeting `main`. The review job fails if the repository secret is missing and skips forks and drafts. Each eligible update sends up to 60,000 bytes of JSON containing complete textual patches and their file metadata. The English report lists included and omitted files under **Actions → PR review with OpenRouter → Summary**.
 
-The check fails if the GitHub file list cannot be verified or a patch is missing, incomplete, or too large to include. Any partial findings remain in the summary. Review missing changes in the PR’s **Files changed** tab. Environment files are excluded from automated review and listed for manual review without failing the check on their own.
+When OpenRouter reviews some but not all changes, the check reports partial coverage and lists known omissions in the summary. Review those changes in the PR’s **Files changed** tab. The check fails if GitHub returns an inconsistent file list, a required API call fails, or technical omissions leave no reviewable patches. Environment files are listed for manual review.
 
 ## Convert currency
 

@@ -58,7 +58,7 @@ O modo de demonstração dispensa consultas aos provedores e a coleta de dados d
 
 ## CI/CD no GitHub Actions
 
-Pull requests para `main` executam `npm ci` e `npm test`, compilam a imagem Docker e verificam uma conversão em modo de demonstração com Redis. Pushes em `main` executam as mesmas verificações e publicam a imagem testada no GitHub Container Registry com a tag do SHA completo do commit.
+Pull requests para `main` executam `npm ci` e `npm test`, compilam a imagem Docker e a iniciam com Compose e Redis. O teste do contêiner faz login, cadastra duas moedas de taxa fixa, converte entre elas e verifica a remoção. Pushes em `main` executam as mesmas verificações e publicam a imagem testada no GitHub Container Registry com a tag do SHA completo do commit.
 
 A publicação usa o `GITHUB_TOKEN` do próprio workflow. Para executar uma imagem publicada, substitua `<commit-sha>` pelo SHA da versão e defina `REDIS` no `.env` com uma URL acessível pelo contêiner. Para baixar uma imagem privada, autentique-se em `ghcr.io` com um token de acesso pessoal clássico com o escopo `read:packages` e acesso de leitura ao pacote. [Documentação do GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic)
 
@@ -72,7 +72,7 @@ Em **Settings → Secrets and variables → Actions**, crie o secret `OPENROUTER
 
 O workflow revisa PRs prontos para revisão, abertos no próprio repositório e direcionados a `main`. O job falha se o secret do repositório estiver ausente e é ignorado em forks e rascunhos. A cada atualização elegível, o workflow envia até 60.000 bytes de JSON com patches textuais completos e metadados dos arquivos. O parecer em inglês lista os arquivos incluídos e omitidos em **Actions → PR review with OpenRouter → Summary**.
 
-A verificação falha se a lista de arquivos do GitHub não puder ser confirmada ou se algum patch estiver ausente, incompleto ou exceder o limite de tamanho. Os resultados parciais ficam no resumo. Revise as alterações omitidas na aba **Files changed** do PR. Arquivos de ambiente ficam fora da revisão automatizada e aparecem no resumo para revisão manual, sem causar falha por si só.
+Quando a OpenRouter revisa apenas parte das alterações, o resumo indica a cobertura parcial e lista as omissões conhecidas. Revise essas alterações na aba **Files changed** do PR. A verificação falha se a lista de arquivos do GitHub for inconsistente, se uma chamada obrigatória à API falhar ou se nenhum patch puder ser revisado por causa de omissões técnicas. Arquivos de ambiente são listados para revisão manual.
 
 ## Converter moedas
 

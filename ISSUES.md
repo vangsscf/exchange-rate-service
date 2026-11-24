@@ -34,7 +34,7 @@ Fixed rates are optional in the schema and may be zero or negative. Conversion d
 
 The scraper expects a space-delimited token containing `$` in both selectors. Plain numeric quantities and some price formats fail. Parsed values are used without verifying that they are positive numbers, and refresh can use the previous rate of the scraper's reference asset. Validate parsing and resolve rate dependencies from the active refresh where possible. [Rate service](src/currencies/rates.service.ts)
 
-### 10. Authentication defaults and transport need hardening
+### 10. Authentication defaults and login need hardening
 
 The environment template contains an easy-to-copy password and signing secret. Login has no attempt limits. Require a strong configured secret and rate-limit login. [Environment template](.env.example) · [Authentication service](src/auth/auth.service.ts)
 
@@ -46,4 +46,4 @@ Compose waits for Redis to respond to a health check before starting the app. Th
 
 - **1. Scheduled refresh binding.** The Nest scheduler invokes the injected rate service every minute and skips overlapping ticks. Refresh awaits the Redis write. [Rate service](src/currencies/rates.service.ts)
 - **8. Async route and Redis connection handling.** Nest handles rejected route promises. The repository shares a connection and closes it on application shutdown. [Bootstrap](src/main.ts) · [Redis repository](src/currencies/currency.repository.ts)
-- **12. Regression checks and package metadata.** Package metadata points to the Nest build, and the HTTP suite covers all routes and the scheduled refresh using fixtures. Live integrations, provider outages, write races, and precision edge cases remain outside that suite. [Package scripts](package.json) · [API regression tests](test/api.test.cjs)
+- **12. Regression checks and package metadata.** Package metadata points to the Nest build. The HTTP suite covers all routes and the scheduled refresh using fixtures. CI checks the runtime image with Compose, Redis, and demo-mode writes and conversions. Live providers, provider outages, write races, and precision edge cases remain outside this coverage. [API regression tests](test/api.test.cjs) · [Compose smoke test](.github/scripts/smoke-test.sh)

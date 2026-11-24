@@ -91,6 +91,9 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         const response = await request('/conversion?from=USD&to=EUR&amount=10&decimalPlaces=2');
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { from: 'USD', to: 'EUR', amount: 10, value: '5.00' });
+        const defaults = await request('/conversion?from=USD&to=EUR');
+        assert.equal(defaults.status, 200);
+        assert.deepEqual(await defaults.json(), { from: 'USD', to: 'EUR', amount: 1, value: '0.50000000' });
 
         const missing = await request('/conversion?from=USD&to=UNKNOWN');
         assert.equal(missing.status, 404);
@@ -127,6 +130,9 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
 
     await t.test('adds and removes custom assets and protects existing main assets', async () => {
         const customAsset = { symbol: 'CUSTOM', type: 'fixed', rate: 2.5 };
+        const unauthorizedAdd = await post('/add', customAsset);
+        assert.equal(unauthorizedAdd.status, 401);
+        assert.equal(await unauthorizedAdd.json(), 'Unauthorized');
         const added = await post('/add', customAsset, token);
         assert.equal(added.status, 200);
         assert.deepEqual(await added.json(), { message: 'Asset CUSTOM added with success!' });
@@ -152,10 +158,17 @@ test('Nest API preserves the exchange-rate contract', async (t) => {
         const main = await request('/remove/USD', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
         assert.equal(main.status, 400);
 
-        const removed = await request('/remove/CUSTOM', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+        const unauthorizedRemove = await request('/remove/CUSTOM', { method: 'DELETE' });
+        assert.equal(unauthorizedRemove.status, 401);
+        assert.equal(await unauthorizedRemove.json(), 'Unauthorized');
+        const deleteOptions = { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } };
+        const removed = await request('/remove/CUSTOM', deleteOptions);
         assert.equal(removed.status, 200);
         assert.deepEqual(await removed.json(), { message: 'Asset CUSTOM removed with success!' });
         assert.equal(coins.has('CUSTOM'), false);
+        const missing = await request('/remove/CUSTOM', deleteOptions);
+        assert.equal(missing.status, 404);
+        assert.deepEqual(await missing.json(), { response: 'CUSTOM not found' });
     });
 
     await t.test('runs the registered refresh with its injected repository', async () => {
